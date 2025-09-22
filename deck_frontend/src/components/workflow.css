@@ -30,8 +30,8 @@
   --white: #FFFFFF;
 
   /* Connectors */
-  --link-green: #3BAA61;   /* left arcs */
-  --link-purple: #7A76D8;  /* right arcs */
+  --link-green: #3BAA61;   /* left straight lines to hub */
+  --link-purple: #7A76D8;  /* right straight lines from hub */
   --link-gray: #A7B2C0;    /* legend/dashed */
 }
 
@@ -46,15 +46,28 @@
 .workflow-svg text {
   font-family: "Helvetica Neue", Arial, sans-serif;
   dominant-baseline: middle;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
-/* Let large header title align visually on baseline within its region */
+/* Tune large header title baseline */
 .workflow-svg text[font-size="48"] {
-  dominant-baseline: auto;
+  dominant-baseline: middle;
 }
 
 /* Ensure crisp rendering for lines and shapes */
 .workflow-svg {
   shape-rendering: geometricPrecision;
   text-rendering: optimizeLegibility;
+}
+
+.workflow-svg line,
+.workflow-svg path {
+  vector-effect: non-scaling-stroke;
+  stroke-linecap: butt;
+}
+
+/* Prevent accidental text selection during interactions (presentations) */
+.workflow-container {
+  -webkit-tap-highlight-color: transparent;
 }

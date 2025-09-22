@@ -10,14 +10,11 @@ import "./workflow.css";
  * - assets/cxc_workflow_slide_design_notes.md
  * - assets/cxc_logo_reference_design_notes.md
  *
- * The diagram is responsive (scales with container width) and uses CSS variables for brand tokens.
- * It shows:
- *  - Header bar with title and right-side callouts
- *  - Central CXC hub (navy circle) with "CXC Network Operator"
- *  - Left: External Issuers stack (green) with curved connectors to the hub
- *  - Right: Consumers/Partners stack (purple) with curved connectors from the hub, plus CSME and Revenue Model cards
- *  - Bottom: 3 Use Case Flow Examples (issuer -> phone/wallet -> verifier) with arrows
- *  - Legend at bottom-right
+ * Changes in this refactor:
+ * - All connectors are straight lines (no curves/bends)
+ * - All text is wrapped or resized to fit within its container; helper utilities ensure no overflow
+ * - Labels and flows are explicit and balanced with pixel-aligned positioning
+ * - Color tokens, icons, and CXC branding are preserved
  */
 const WorkflowDiagram = () => {
   // Canvas constants (as per spec)
@@ -79,6 +76,7 @@ const WorkflowDiagram = () => {
         title: "University Admission Verification",
         issuer: "CXC (CAPE / CSEC)",
         verifier: "University Admission Offices",
+        stepLabels: { left: "Issue to Wallet", right: "Present / Verify" },
       },
       {
         x: 672,
@@ -86,6 +84,7 @@ const WorkflowDiagram = () => {
         title: "Employment Document Verification",
         issuer: "Professional Bodies",
         verifier: "Employers",
+        stepLabels: { left: "Issue to Wallet", right: "Present / Verify" },
       },
       {
         x: 1248,
@@ -93,6 +92,7 @@ const WorkflowDiagram = () => {
         title: "Professional Licensing Document Verification",
         issuer: "University Degrees",
         verifier: "Professional Licensing Boards",
+        stepLabels: { left: "Issue to Wallet", right: "Present / Verify" },
       },
     ],
   };
@@ -105,11 +105,12 @@ const WorkflowDiagram = () => {
     h: 200,
   };
 
-  // Helpers
+  // ------------------------
+  // Helpers: Geometry & Text
+  // ------------------------
 
   // Compute a point on the left edge of the hub given an index to distribute vertically
   const hubLeftAnchor = (index, total) => {
-    // Spread anchors across approx 210° to 330° left boundary (simulate by vertical spread)
     const span = 220; // total vertical span across hub left side
     const offset = total > 1 ? (index / (total - 1)) * span - span / 2 : 0;
     return { x: hub.cx - hub.r + 4, y: hub.cy + offset };
@@ -122,12 +123,122 @@ const WorkflowDiagram = () => {
     return { x: hub.cx + hub.r - 4, y: hub.cy + offset };
   };
 
-  // Build cubic bezier path between two points with soft curvature
-  const cubicPath = (start, end, curve = 0.5) => {
-    const dx = end.x - start.x;
-    const c1 = { x: start.x + dx * curve, y: start.y };
-    const c2 = { x: end.x - dx * curve, y: end.y };
-    return `M ${start.x},${start.y} C ${c1.x},${c1.y} ${c2.x},${c2.y} ${end.x},${end.y}`;
+  // Text wrapping utility: naive word-wrap by character count per line
+  const charWidthCoef = 0.62; // approximate width factor per fontSize (Helvetica/Arial em)
+  const wrapByChars = (text, maxChars) => {
+    if (!text) return [""];
+    const words = text.split(" ");
+    const lines = [];
+    let current = "";
+    words.forEach((w) => {
+      const test = current.length ? `${current} ${w}` : w;
+      if (test.length <= maxChars) {
+        current = test;
+      } else {
+        if (current.length) lines.push(current);
+        // If single long word exceeds maxChars, hard-break
+        if (w.length > maxChars) {
+          let start = 0;
+          while (start < w.length) {
+            lines.push(w.substring(start, start + maxChars));
+            start += maxChars;
+          }
+          current = "";
+        } else {
+          current = w;
+        }
+      }
+    });
+    if (current.length) lines.push(current);
+    return lines;
+  };
+
+  // Decide font size and wrap to fit within given width/height
+  const computeWrappedLines = ({
+    text,
+    boxW,
+    boxH,
+    fontSingle = 18,
+    fontMulti = 16,
+    paddingX = 16,
+    minFont = 14,
+    maxLines = 2,
+  }) => {
+    const innerW = Math.max(0, boxW - paddingX * 2);
+    const attempt = (f) => {
+      const maxChars = Math.max(6, Math.floor(innerW / (f * charWidthCoef)));
+      const lines = wrapByChars(text, maxChars);
+      return { lines, f };
+    };
+
+    // Try single-line fit with fontSingle; if overflow, try multi-line with fontMulti; then reduce down to minFont if needed
+    let { lines, f } = attempt(fontSingle);
+    if (lines.length > 1) {
+      ({ lines, f } = attempt(fontMulti));
+    }
+    while (lines.length > maxLines && f > minFont) {
+      f -= 1;
+      ({ lines, f } = attempt(f));
+    }
+
+    // Ensure final lines count fits the box height
+    const lineHeight = Math.round(f + Math.max(2, f * 0.2)); // small padding between lines
+    const totalTextH = lines.length * lineHeight;
+    if (totalTextH > boxH - 8 && lines.length > 1) {
+      // If still too tall, reduce font slightly
+      const shrink = Math.max(0, Math.ceil((totalTextH - (boxH - 8)) / lines.length));
+      const f2 = Math.max(minFont, f - shrink);
+      ({ lines, f } = attempt(f2));
+    }
+
+    return { lines, fontSize: f, lineHeight };
+  };
+
+  // Draw wrapped text inside a box area
+  const WrappedBoxText = ({
+    x,
+    y,
+    w,
+    h,
+    text,
+    fill = "var(--white)",
+    fontSingle = 18,
+    fontMulti = 16,
+    fontWeight = 700,
+    paddingX = 16,
+    anchor = "start", // or "middle"
+  }) => {
+    const { lines, fontSize, lineHeight } = computeWrappedLines({
+      text,
+      boxW: w,
+      boxH: h,
+      fontSingle,
+      fontMulti,
+      paddingX,
+    });
+
+    const textX = anchor === "middle" ? x + w / 2 : x + paddingX;
+    // Vertically center the block of lines within the rectangle
+    const textBlockH = lines.length * lineHeight;
+    const yStart = y + (h - textBlockH) / 2;
+
+    return (
+      <text
+        x={textX}
+        y={yStart}
+        fill={fill}
+        fontSize={fontSize}
+        fontWeight={fontWeight}
+        dominantBaseline="hanging"
+        textAnchor={anchor}
+      >
+        {lines.map((ln, i) => (
+          <tspan key={i} x={textX} dy={i === 0 ? 0 : lineHeight}>
+            {ln}
+          </tspan>
+        ))}
+      </text>
+    );
   };
 
   // Small phone illustration as a group
@@ -137,7 +248,17 @@ const WorkflowDiagram = () => {
     const r = 16;
     return (
       <g aria-label="Smartphone illustration">
-        <rect x={x} y={y} width={w} height={h} rx={r} ry={r} fill="var(--white)" stroke="var(--ink-300)" strokeWidth="2" />
+        <rect
+          x={x}
+          y={y}
+          width={w}
+          height={h}
+          rx={r}
+          ry={r}
+          fill="var(--white)"
+          stroke="var(--ink-300)"
+          strokeWidth="2"
+        />
         <rect x={x + 8} y={y + 28} width={w - 16} height={h - 56} rx="8" ry="8" fill="var(--ink-100)" />
         {/* Status bar */}
         <rect x={x + 8} y={y + 10} width={w - 16} height={12} rx="6" ry="6" fill="var(--cxc-blue)" />
@@ -153,30 +274,51 @@ const WorkflowDiagram = () => {
           <rect x="24" y="24" width="6" height="6" fill="var(--ink-500)" />
         </g>
         {/* Home indicator */}
-        <rect x={x + (w / 2 - 14)} y={y + h - 14} width="28" height="4" rx="2" ry="2" fill="var(--accent-orange)" />
+        <rect
+          x={x + w / 2 - 14}
+          y={y + h - 14}
+          width="28"
+          height="4"
+          rx="2"
+          ry="2"
+          fill="var(--accent-orange)"
+        />
       </g>
     );
   };
 
-  // Micro card (green or purple)
-  const MicroCard = ({ x, y, w = 120, h = 44, label, fill, textFill = "var(--white)" }) => (
+  // Micro card (green or purple) with wrapped text
+  const MicroCard = ({
+    x,
+    y,
+    w = 160,
+    h = 44,
+    label,
+    fill,
+    textFill = "var(--white)",
+  }) => (
     <g>
       <rect x={x} y={y} width={w} height={h} rx="8" ry="8" fill={fill} filter="url(#shadowSoft)" />
-      <text x={x + w / 2} y={y + h / 2 + 6} textAnchor="middle" fontSize="16" fontWeight="700" fill={textFill}>
-        {label}
-      </text>
+      <WrappedBoxText x={x} y={y} w={w} h={h} text={label} fill={textFill} fontSingle={16} fontMulti={14} />
     </g>
   );
 
-  // General card
+  // General card (simple header + small subtitle)
   const Card = ({ x, y, w, h, title, subtitle, fill = "var(--white)", titleFill = "var(--cxc-navy)" }) => (
     <g>
       <rect x={x} y={y} width={w} height={h} rx="8" ry="8" fill={fill} stroke="var(--ink-200)" />
-      <text x={x + 16} y={y + 26} fontSize="18" fontWeight="700" fill={titleFill}>
+      <text x={x + 16} y={y + 24} fontSize="18" fontWeight="700" fill={titleFill} dominantBaseline="middle">
         {title}
       </text>
       {subtitle ? (
-        <text x={x + 16} y={y + 50} fontSize="14" fontWeight="500" fill="var(--ink-700)">
+        <text
+          x={x + 16}
+          y={y + 48}
+          fontSize="14"
+          fontWeight="500"
+          fill="var(--ink-700)"
+          dominantBaseline="middle"
+        >
           {subtitle}
         </text>
       ) : null}
@@ -198,15 +340,19 @@ const WorkflowDiagram = () => {
   // Header right callout line with star
   const HeaderCallout = ({ x, y, text }) => (
     <g>
-      <Star cx={x + 10} cy={y - 8} r={1.2} />
-      <text x={x + 28} y={y - 4} fontSize="16" fontWeight="600" fill="var(--white)">
+      <Star cx={x + 10} cy={y - 6} r={1.2} />
+      <text x={x + 28} y={y - 2} fontSize="16" fontWeight="600" fill="var(--white)" dominantBaseline="middle">
         {text}
       </text>
     </g>
   );
 
   return (
-    <div className="workflow-container" role="img" aria-label="CXC Digital Credentialing Ecosystem workflow diagram">
+    <div
+      className="workflow-container"
+      role="img"
+      aria-label="CXC Digital Credentialing Ecosystem workflow diagram"
+    >
       <svg
         className="workflow-svg"
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
@@ -222,20 +368,44 @@ const WorkflowDiagram = () => {
           </filter>
 
           {/* Arrowheads */}
-          <marker id="arrowGreen" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+          <marker
+            id="arrowGreen"
+            markerWidth="10"
+            markerHeight="10"
+            refX="8"
+            refY="3"
+            orient="auto"
+            markerUnits="strokeWidth"
+          >
             <path d="M0,0 L10,3 L0,6 Z" fill="var(--link-green)" />
           </marker>
-          <marker id="arrowPurple" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+          <marker
+            id="arrowPurple"
+            markerWidth="10"
+            markerHeight="10"
+            refX="8"
+            refY="3"
+            orient="auto"
+            markerUnits="strokeWidth"
+          >
             <path d="M0,0 L10,3 L0,6 Z" fill="var(--link-purple)" />
           </marker>
-          <marker id="arrowNeutral" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+          <marker
+            id="arrowNeutral"
+            markerWidth="10"
+            markerHeight="10"
+            refX="8"
+            refY="3"
+            orient="auto"
+            markerUnits="strokeWidth"
+          >
             <path d="M0,0 L10,3 L0,6 Z" fill="var(--ink-500)" />
           </marker>
         </defs>
 
         {/* Header bar */}
         <rect x="0" y="0" width={WIDTH} height={headerH} fill="var(--cxc-navy)" />
-        <text x="96" y="52" fontSize="48" fontWeight="700" fill="var(--white)">
+        <text x="96" y="40" fontSize="48" fontWeight="700" fill="var(--white)" dominantBaseline="middle">
           Current Infrastructure Integration
         </text>
 
@@ -246,8 +416,26 @@ const WorkflowDiagram = () => {
           <HeaderCallout x={0} y={70} text="Blockchain Platform" />
           {/* White-label enhancements pill */}
           <g transform="translate(260, -6)">
-            <rect x="0" y="0" width="240" height="44" rx="22" ry="22" fill="var(--cxc-navy-700)" stroke="var(--white)" opacity="0.95" />
-            <text x="120" y="28" textAnchor="middle" fontSize="16" fontWeight="700" fill="var(--white)">
+            <rect
+              x="0"
+              y="0"
+              width="240"
+              height="44"
+              rx="22"
+              ry="22"
+              fill="var(--cxc-navy-700)"
+              stroke="var(--white)"
+              opacity="0.95"
+            />
+            <text
+              x="120"
+              y="22"
+              textAnchor="middle"
+              fontSize="16"
+              fontWeight="700"
+              fill="var(--white)"
+              dominantBaseline="middle"
+            >
               White-label enhancements
             </text>
           </g>
@@ -257,35 +445,89 @@ const WorkflowDiagram = () => {
         <g filter="url(#shadowSoft)">
           <circle cx={hub.cx} cy={hub.cy} r={hub.r} fill="var(--cxc-navy)" />
           {/* Accent ring */}
-          <circle cx={hub.cx} cy={hub.cy} r={hub.r - 6} fill="none" stroke="var(--cxc-blue)" strokeWidth="2" opacity="0.6" />
+          <circle
+            cx={hub.cx}
+            cy={hub.cy}
+            r={hub.r - 6}
+            fill="none"
+            stroke="var(--cxc-blue)"
+            strokeWidth="2"
+            opacity="0.6"
+          />
         </g>
-        <text x={hub.cx} y={hub.cy - 8} textAnchor="middle" fontSize="48" fontWeight="800" fill="var(--white)" letterSpacing="0.5">
+        <text
+          x={hub.cx}
+          y={hub.cy - 12}
+          textAnchor="middle"
+          fontSize="48"
+          fontWeight="800"
+          fill="var(--white)"
+          letterSpacing="0.5"
+          dominantBaseline="middle"
+        >
           CXC
         </text>
-        <text x={hub.cx} y={hub.cy + 26} textAnchor="middle" fontSize="22" fontWeight="700" fill="var(--white)">
+        <text
+          x={hub.cx}
+          y={hub.cy + 20}
+          textAnchor="middle"
+          fontSize="22"
+          fontWeight="700"
+          fill="var(--white)"
+          dominantBaseline="middle"
+        >
           Network Operator
         </text>
-        <text x={hub.cx} y={hub.cy + 50} textAnchor="middle" fontSize="14" fontWeight="500" fill="rgba(255,255,255,.75)">
+        <text
+          x={hub.cx}
+          y={hub.cy + 44}
+          textAnchor="middle"
+          fontSize="14"
+          fontWeight="500"
+          fill="rgba(255,255,255,.75)"
+          dominantBaseline="middle"
+        >
           Powered by [Platform]
         </text>
 
         {/* Left label card */}
-        <Card x={left.labelCard.x} y={left.labelCard.y} w={left.labelCard.w} h={left.labelCard.h} title={left.labelCard.title} />
+        <Card
+          x={left.labelCard.x}
+          y={left.labelCard.y}
+          w={left.labelCard.w}
+          h={left.labelCard.h}
+          title={left.labelCard.title}
+        />
 
-        {/* Left stack boxes + connectors */}
+        {/* Left stack boxes + straight connectors */}
         {left.items.map((label, i) => {
           const x = left.x;
           const y = left.startY + i * (left.boxH + left.gap);
           const midRight = { x: x + left.boxW, y: y + left.boxH / 2 };
           const end = hubLeftAnchor(i, left.items.length);
-          const d = cubicPath(midRight, end, 0.5);
           return (
             <g key={`left-${i}`}>
-              <rect x={x} y={y} width={left.boxW} height={left.boxH} rx="8" ry="8" fill="var(--green-500)" filter="url(#shadowSoft)" />
-              <text x={x + 16} y={y + 32} fontSize="18" fontWeight="700" fill="var(--white)">
-                {label}
-              </text>
-              <path d={d} fill="none" stroke="var(--link-green)" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+              <rect
+                x={x}
+                y={y}
+                width={left.boxW}
+                height={left.boxH}
+                rx="8"
+                ry="8"
+                fill="var(--green-500)"
+                filter="url(#shadowSoft)"
+              />
+              <WrappedBoxText x={x} y={y} w={left.boxW} h={left.boxH} text={label} fill="var(--white)" />
+              {/* Straight connector */}
+              <line
+                x1={midRight.x}
+                y1={midRight.y}
+                x2={end.x}
+                y2={end.y}
+                stroke="var(--link-green)"
+                strokeWidth="2"
+                markerEnd="url(#arrowGreen)"
+              />
             </g>
           );
         })}
@@ -304,11 +546,12 @@ const WorkflowDiagram = () => {
           />
           <text
             x={right.csme.x + right.csme.w / 2}
-            y={right.csme.y + 28}
+            y={right.csme.y + right.csme.h / 2}
             textAnchor="middle"
             fontSize="18"
             fontWeight="700"
             fill="var(--white)"
+            dominantBaseline="middle"
           >
             {right.csme.label}
           </text>
@@ -326,37 +569,80 @@ const WorkflowDiagram = () => {
             fill="var(--ink-100)"
             stroke="var(--ink-200)"
           />
-          <text x={right.revenue.x + 16} y={right.revenue.y + 26} fontSize="18" fontWeight="700" fill="var(--cxc-navy)">
+          <text
+            x={right.revenue.x + 16}
+            y={right.revenue.y + 26}
+            fontSize="18"
+            fontWeight="700"
+            fill="var(--cxc-navy)"
+            dominantBaseline="middle"
+          >
             {right.revenue.title}
           </text>
-          <text x={right.revenue.x + 16} y={right.revenue.y + 48} fontSize="14" fontWeight="500" fill="var(--ink-700)">
+          <text
+            x={right.revenue.x + 16}
+            y={right.revenue.y + 50}
+            fontSize="14"
+            fontWeight="500"
+            fill="var(--ink-700)"
+            dominantBaseline="middle"
+          >
             • Placeholder line 1
           </text>
-          <text x={right.revenue.x + 16} y={right.revenue.y + 66} fontSize="14" fontWeight="500" fill="var(--ink-700)">
+          <text
+            x={right.revenue.x + 16}
+            y={right.revenue.y + 68}
+            fontSize="14"
+            fontWeight="500"
+            fill="var(--ink-700)"
+            dominantBaseline="middle"
+          >
             • Placeholder line 2
           </text>
         </g>
 
-        {/* Right stack boxes + connectors */}
+        {/* Right stack boxes + straight connectors */}
         {right.items.map((label, i) => {
           const x = right.x;
           const y = right.startY + i * (right.boxH + right.gap);
           const midLeft = { x: x, y: y + right.boxH / 2 };
           const start = hubRightAnchor(i, right.items.length);
-          const d = cubicPath(start, midLeft, 0.5);
           return (
             <g key={`right-${i}`}>
-              <rect x={x} y={y} width={right.boxW} height={right.boxH} rx="8" ry="8" fill="var(--purple-600)" filter="url(#shadowSoft)" />
-              <text x={x + 16} y={y + 32} fontSize="18" fontWeight="700" fill="var(--white)">
-                {label}
-              </text>
-              <path d={d} fill="none" stroke="var(--link-purple)" strokeWidth="2" markerEnd="url(#arrowPurple)" />
+              <rect
+                x={x}
+                y={y}
+                width={right.boxW}
+                height={right.boxH}
+                rx="8"
+                ry="8"
+                fill="var(--purple-600)"
+                filter="url(#shadowSoft)"
+              />
+              <WrappedBoxText x={x} y={y} w={right.boxW} h={right.boxH} text={label} fill="var(--white)" />
+              {/* Straight connector */}
+              <line
+                x1={start.x}
+                y1={start.y}
+                x2={midLeft.x}
+                y2={midLeft.y}
+                stroke="var(--link-purple)"
+                strokeWidth="2"
+                markerEnd="url(#arrowPurple)"
+              />
             </g>
           );
         })}
 
         {/* Bottom Use Case Section Label */}
-        <text x={bottom.sectionLabel.x} y={bottom.sectionLabel.y} fontSize="32" fontWeight="700" fill="var(--cxc-navy)">
+        <text
+          x={bottom.sectionLabel.x}
+          y={bottom.sectionLabel.y}
+          fontSize="32"
+          fontWeight="700"
+          fill="var(--cxc-navy)"
+          dominantBaseline="middle"
+        >
           {bottom.sectionLabel.text}
         </text>
 
@@ -364,53 +650,103 @@ const WorkflowDiagram = () => {
         {bottom.columns.map((col, idx) => {
           const issuerX = col.x;
           const issuerY = col.y + 20;
-          const phoneX = issuerX + 160;
+          const phoneX = issuerX + 170; // slight spacing for straight arrow
           const phoneY = issuerY - 58;
-          const verifierX = phoneX + 170;
+          const verifierX = phoneX + 190;
           const verifierY = issuerY;
 
           return (
             <g key={`flow-${idx}`}>
               {/* Title */}
-              <text x={col.x} y={col.y} fontSize="18" fontWeight="700" fill="var(--ink-900)">
+              <text x={col.x} y={col.y} fontSize="18" fontWeight="700" fill="var(--ink-900)" dominantBaseline="middle">
                 {idx + 1}) {col.title}
               </text>
 
               {/* Issuer micro-card */}
               <MicroCard x={issuerX} y={issuerY} label={col.issuer} fill="var(--green-400)" />
 
-              {/* Arrow -> Phone */}
-              <path
-                d={`M ${issuerX + 130},${issuerY + 22} L ${phoneX - 14},${issuerY + 22}`}
+              {/* Arrow -> Phone (straight) */}
+              <line
+                x1={issuerX + 160}
+                y1={issuerY + 22}
+                x2={phoneX - 14}
+                y2={issuerY + 22}
                 stroke="var(--ink-500)"
                 strokeWidth="2"
-                fill="none"
                 markerEnd="url(#arrowNeutral)"
               />
+              <text
+                x={(issuerX + 160 + (phoneX - 14)) / 2}
+                y={issuerY + 10}
+                fontSize="12"
+                fontWeight="600"
+                fill="var(--ink-700)"
+                textAnchor="middle"
+                dominantBaseline="ideographic"
+              >
+                {col.stepLabels.left}
+              </text>
 
               {/* Phone */}
               <Phone x={phoneX} y={phoneY} />
-              <text x={phoneX + 40} y={phoneY + 180} textAnchor="middle" fontSize="14" fontWeight="500" fill="var(--ink-700)">
+              <text
+                x={phoneX + 40}
+                y={phoneY + 180}
+                textAnchor="middle"
+                fontSize="14"
+                fontWeight="500"
+                fill="var(--ink-700)"
+                dominantBaseline="middle"
+              >
                 Wallet / QR
               </text>
 
-              {/* Arrow -> Verifier */}
-              <path
-                d={`M ${phoneX + 94},${issuerY + 22} L ${verifierX - 10},${issuerY + 22}`}
+              {/* Arrow -> Verifier (straight) */}
+              <line
+                x1={phoneX + 94}
+                y1={issuerY + 22}
+                x2={verifierX - 10}
+                y2={issuerY + 22}
                 stroke="var(--ink-500)"
                 strokeWidth="2"
-                fill="none"
                 markerEnd="url(#arrowNeutral)"
               />
+              <text
+                x={(phoneX + 94 + (verifierX - 10)) / 2}
+                y={issuerY + 10}
+                fontSize="12"
+                fontWeight="600"
+                fill="var(--ink-700)"
+                textAnchor="middle"
+                dominantBaseline="ideographic"
+              >
+                {col.stepLabels.right}
+              </text>
 
               {/* Verifier micro-card */}
               <MicroCard x={verifierX} y={verifierY} label={col.verifier} fill="var(--purple-500)" />
 
               {/* Captions under issuer and verifier */}
-              <text x={issuerX + 60} y={issuerY + 68} textAnchor="middle" fontSize="14" fontWeight="500" fill="var(--ink-700)">
+              <text
+                x={issuerX + 80}
+                y={issuerY + 68}
+                textAnchor="middle"
+                fontSize="14"
+                fontWeight="500"
+                fill="var(--ink-700)"
+                dominantBaseline="middle"
+              >
                 Issuer
               </text>
-              <text x={verifierX + 60} y={verifierY + 68} textAnchor="middle" fontSize="14" fontWeight="500" fill="var(--ink-700)">
+              <text
+                x={verifierX + 80}
+                y={verifierY + 68}
+                textAnchor="middle"
+                fontSize="14"
+                fontWeight="500"
+                fill="var(--ink-700)"
+                dominantBaseline="middle"
+              >
                 Verifier
               </text>
             </g>
@@ -420,26 +756,34 @@ const WorkflowDiagram = () => {
         {/* Legend (bottom-right) */}
         <g transform={`translate(${legend.x}, ${legend.y})`}>
           <rect width={legend.w} height={legend.h} rx="8" ry="8" fill="var(--white)" stroke="var(--ink-200)" />
-          <text x="16" y="28" fontSize="16" fontWeight="800" fill="var(--cxc-navy)">
+          <text x="16" y="22" fontSize="16" fontWeight="800" fill="var(--cxc-navy)" dominantBaseline="middle">
             LEGEND
           </text>
 
           {/* Lines legend */}
           <g transform="translate(16, 48)">
             <line x1="0" y1="0" x2="36" y2="0" stroke="var(--link-green)" strokeWidth="3" />
-            <text x="48" y="6" fontSize="14" fontWeight="500" fill="var(--ink-700)">
+            <text x="48" y="4" fontSize="14" fontWeight="500" fill="var(--ink-700)" dominantBaseline="middle">
               Green connectors = Issuer → Hub
             </text>
           </g>
-          <g transform="translate(16, 72)">
+          <g transform="translate(16, 74)">
             <line x1="0" y1="0" x2="36" y2="0" stroke="var(--link-purple)" strokeWidth="3" />
-            <text x="48" y="6" fontSize="14" fontWeight="500" fill="var(--ink-700)">
+            <text x="48" y="4" fontSize="14" fontWeight="500" fill="var(--ink-700)" dominantBaseline="middle">
               Purple connectors = Hub → Consumer
             </text>
           </g>
-          <g transform="translate(16, 96)">
-            <line x1="0" y1="0" x2="36" y2="0" stroke="var(--link-gray)" strokeWidth="3" strokeDasharray="6 6" />
-            <text x="48" y="6" fontSize="14" fontWeight="500" fill="var(--ink-700)">
+          <g transform="translate(16, 100)">
+            <line
+              x1="0"
+              y1="0"
+              x2="36"
+              y2="0"
+              stroke="var(--link-gray)"
+              strokeWidth="3"
+              strokeDasharray="6 6"
+            />
+            <text x="48" y="4" fontSize="14" fontWeight="500" fill="var(--ink-700)" dominantBaseline="middle">
               Dashed gray = Optional/Planned integration
             </text>
           </g>
@@ -447,14 +791,14 @@ const WorkflowDiagram = () => {
           {/* Icon keys */}
           <g transform="translate(16, 128)">
             <Star cx={8} cy={-2} r={1.2} />
-            <text x="24" y="4" fontSize="14" fontWeight="500" fill="var(--ink-700)">
+            <text x="24" y="2" fontSize="14" fontWeight="500" fill="var(--ink-700)" dominantBaseline="middle">
               Star = Leverage/Benefit
             </text>
           </g>
           <g transform="translate(16, 152)">
             {/* Mini phone glyph */}
             <rect x="0" y="-10" width="16" height="24" rx="3" ry="3" fill="var(--ink-300)" />
-            <text x="24" y="6" fontSize="14" fontWeight="500" fill="var(--ink-700)">
+            <text x="24" y="2" fontSize="14" fontWeight="500" fill="var(--ink-700)" dominantBaseline="middle">
               Phone = Mobile Wallet
             </text>
           </g>
@@ -462,12 +806,20 @@ const WorkflowDiagram = () => {
             {/* Mini QR glyph */}
             <rect x="0" y="-10" width="16" height="16" fill="var(--ink-300)" />
             <rect x="3" y="-7" width="10" height="10" fill="var(--ink-500)" />
-            <text x="24" y="4" fontSize="14" fontWeight="500" fill="var(--ink-700)">
+            <text x="24" y="0" fontSize="14" fontWeight="500" fill="var(--ink-700)" dominantBaseline="middle">
               QR = Verification
             </text>
           </g>
 
-          <text x={legend.w - 16} y={legend.h - 12} textAnchor="end" fontSize="12" fontWeight="500" fill="var(--ink-500)">
+          <text
+            x={legend.w - 16}
+            y={legend.h - 14}
+            textAnchor="end"
+            fontSize="12"
+            fontWeight="500"
+            fill="var(--ink-500)"
+            dominantBaseline="middle"
+          >
             CXC Concept Visualization
           </text>
         </g>
