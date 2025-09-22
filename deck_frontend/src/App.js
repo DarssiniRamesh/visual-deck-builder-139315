@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import logo from './logo.svg';
 import './App.css';
+import WorkflowDiagram from './components/WorkflowDiagram';
 
 // PUBLIC_INTERFACE
 function App() {
@@ -26,10 +27,8 @@ function App() {
         >
           {theme === 'light' ? '🌙 Dark' : '☀️ Light'}
         </button>
+        {/* Keep logo and Learn React link for existing test compatibility */}
         <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
         <p>
           Current theme: <strong>{theme}</strong>
         </p>
@@ -41,6 +40,11 @@ function App() {
         >
           Learn React
         </a>
+
+        {/* Workflow Diagram Slide */}
+        <div style={{ width: '100%', marginTop: 32 }}>
+          <WorkflowDiagram />
+        </div>
       </header>
     </div>
   );
